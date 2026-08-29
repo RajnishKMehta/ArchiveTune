@@ -19,7 +19,20 @@ class YtDlpStreamRepository
     constructor(
         private val runtime: YtDlpRuntime,
     ) : AudioStreamRepository {
-        override suspend fun resolve(request: AudioStreamRequest): ResolvedAudioStream {
+        override suspend fun resolve(request: AudioStreamRequest): ResolvedAudioStream =
+            resolve(
+                request = request,
+                priority =
+                    when (request.purpose) {
+                        StreamPurpose.PLAYBACK -> StreamResolutionPriority.FOREGROUND
+                        StreamPurpose.DOWNLOAD -> StreamResolutionPriority.BACKGROUND
+                    },
+            )
+
+        internal suspend fun resolve(
+            request: AudioStreamRequest,
+            priority: StreamResolutionPriority,
+        ): ResolvedAudioStream {
             val authState = request.authState
             if (authState.hasLoginCookie && !hasYtDlpYouTubeLoginCookies(authState.cookie)) {
                 throw YTPlayerUtils.InvalidPlaybackLoginContextException(
@@ -30,7 +43,7 @@ class YtDlpStreamRepository
             }
 
             return try {
-                runtime.resolve(request, authState)
+                runtime.resolve(request, authState, priority)
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (throwable: Throwable) {
