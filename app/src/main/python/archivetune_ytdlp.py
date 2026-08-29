@@ -18,6 +18,11 @@ _runtime_path = None
 _runtime_version = None
 _archive_loaded = False
 _runtime_lock = threading.Lock()
+_FAST_ONLY_EXTRACTION_MODE = "fast_only"
+_FAST_SOCKET_TIMEOUT_SECONDS = 4
+_ROBUST_SOCKET_TIMEOUT_SECONDS = 15
+_FAST_RETRY_COUNT = 0
+_ROBUST_RETRY_COUNT = 1
 
 
 def _ensure_runtime(runtime_path):
@@ -379,6 +384,8 @@ def _extract_info(
     extractor_args,
     cookie_file=None,
     diagnostics=True,
+    socket_timeout=_ROBUST_SOCKET_TIMEOUT_SECONDS,
+    retry_count=_ROBUST_RETRY_COUNT,
 ):
     logger = _DiagnosticYtDlpLogger(expect_authentication=cookie_file is not None)
     options = {
@@ -386,10 +393,10 @@ def _extract_info(
         "verbose": diagnostics,
         "noplaylist": True,
         "skip_download": True,
-        "socket_timeout": 15,
-        "retries": 1,
-        "extractor_retries": 1,
-        "fragment_retries": 1,
+        "socket_timeout": socket_timeout,
+        "retries": retry_count,
+        "extractor_retries": retry_count,
+        "fragment_retries": retry_count,
         "extractor_args": extractor_args,
         "js_runtimes": {},
         "remote_components": set(),
@@ -427,7 +434,45 @@ def _normalize_po_token(value):
     return base64.urlsafe_b64encode(decoded).decode("ascii")
 
 
-def _build_extractor_args(request, authenticated, skip_initial_data=False):
+def _select_fast_player_client(authenticated, provider_args):
+    if not authenticated:
+        return "visionos"
+    if "gvs_session" in provider_args or "gvs_video" in provider_args:
+        return "web_creator"
+    return "web_embedded"
+
+
+def _build_provider_args(request, ignore_invalid_tokens):
+    provider_args = {}
+    data_sync_id = request.get("data_sync_id")
+    session_token = request.get("po_token_web_creator_gvs_session")
+    if data_sync_id and session_token:
+        try:
+            provider_args["data_sync_id"] = [data_sync_id]
+            provider_args["gvs_session"] = [_normalize_po_token(session_token)]
+        except ValueError:
+            provider_args.pop("data_sync_id", None)
+            if not ignore_invalid_tokens:
+                raise
+
+    video_token = request.get("po_token_web_creator_gvs_video")
+    if video_token:
+        try:
+            provider_args["video_id"] = [request["media_id"]]
+            provider_args["gvs_video"] = [_normalize_po_token(video_token)]
+        except ValueError:
+            provider_args.pop("video_id", None)
+            if not ignore_invalid_tokens:
+                raise
+    return provider_args
+
+
+def _build_extractor_args(
+    request,
+    authenticated,
+    skip_initial_data=False,
+    single_client=False,
+):
     youtube_args = {
         "skip": ["hls", "dash", "translated_subs"],
     }
@@ -435,25 +480,26 @@ def _build_extractor_args(request, authenticated, skip_initial_data=False):
         youtube_args["player_skip"] = ["initial_data", "configs"]
     extractor_args = {"youtube": youtube_args}
     if not authenticated:
+        if single_client:
+            youtube_args["player_client"] = [
+                _select_fast_player_client(authenticated, {})
+            ]
         return extractor_args
 
-    youtube_args["player_client"] = [
-        "default",
-        "-tv_downgraded",
-        "web_embedded",
-    ]
-
-    provider_args = {}
-    data_sync_id = request.get("data_sync_id")
-    session_token = request.get("po_token_web_creator_gvs_session")
-    if data_sync_id and session_token:
-        provider_args["data_sync_id"] = [data_sync_id]
-        provider_args["gvs_session"] = [_normalize_po_token(session_token)]
-
-    video_token = request.get("po_token_web_creator_gvs_video")
-    if video_token:
-        provider_args["video_id"] = [request["media_id"]]
-        provider_args["gvs_video"] = [_normalize_po_token(video_token)]
+    provider_args = _build_provider_args(
+        request,
+        ignore_invalid_tokens=single_client,
+    )
+    if single_client:
+        youtube_args["player_client"] = [
+            _select_fast_player_client(authenticated, provider_args)
+        ]
+    else:
+        youtube_args["player_client"] = [
+            "default",
+            "-tv_downgraded",
+            "web_embedded",
+        ]
 
     if "gvs_session" in provider_args or "gvs_video" in provider_args:
         extractor_args["youtubepot-archivetune"] = provider_args
@@ -472,10 +518,12 @@ def _extract_audio_info(youtube_dl, url, request, cookie_file):
     from yt_dlp.utils import DownloadError
 
     authenticated = cookie_file is not None
+    fast_only = request.get("extraction_mode") == _FAST_ONLY_EXTRACTION_MODE
     fast_extractor_args = _build_extractor_args(
         request,
         authenticated=authenticated,
         skip_initial_data=True,
+        single_client=True,
     )
     try:
         info = _extract_info(
@@ -484,6 +532,8 @@ def _extract_audio_info(youtube_dl, url, request, cookie_file):
             fast_extractor_args,
             cookie_file,
             diagnostics=False,
+            socket_timeout=_FAST_SOCKET_TIMEOUT_SECONDS,
+            retry_count=_FAST_RETRY_COUNT,
         )
         selected = _choose_format(
             info.get("formats"),
@@ -497,7 +547,11 @@ def _extract_audio_info(youtube_dl, url, request, cookie_file):
         ):
             return info, selected
     except (DownloadError, RuntimeError):
-        pass
+        if fast_only:
+            raise
+
+    if fast_only:
+        raise RuntimeError("yt-dlp fast path returned incomplete song metadata")
 
     extractor_args = _build_extractor_args(
         request,
