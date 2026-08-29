@@ -16,7 +16,7 @@ enum class StreamPurpose {
 }
 
 enum class StreamSource {
-    YT_DLP,
+    YOUTUBEI,
     NATIVE_INNERTUBE,
 }
 

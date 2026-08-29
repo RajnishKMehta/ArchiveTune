@@ -18,7 +18,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.guava.future
-import moe.rukamori.archivetune.morideobfuscator.ytdlp.YtDlpRuntimeStore
 import moe.rukamori.archivetune.utils.YTPlayerUtils
 import timber.log.Timber
 import java.net.SocketTimeoutException
@@ -34,7 +33,7 @@ import kotlin.coroutines.coroutineContext
 class ResolveAudioStreamUseCase
     @Inject
     constructor(
-        private val ytDlpRepository: YtDlpStreamRepository,
+        private val youtubeiRepository: YoutubeiStreamRepository,
         private val nativeRepository: NativeStreamRepository,
     ) {
         private data class CacheKey(
@@ -45,7 +44,6 @@ class ResolveAudioStreamUseCase
             val authFingerprint: String,
             val pinnedFormatId: Int?,
             val requiresSongMetadata: Boolean,
-            val runtimeRevision: String,
         )
 
         private data class InFlightKey(
@@ -270,18 +268,18 @@ class ResolveAudioStreamUseCase
             request: AudioStreamRequest,
             priority: StreamResolutionPriority,
         ): ResolvedAudioStream {
-            val ytDlpFailure =
+            val youtubeiFailure =
                 try {
                     val resolvedAuthState =
                         if (request.authState.hasLoginCookie) {
-                            YTPlayerUtils.ensureYtDlpPoTokensForPlayback(
+                            YTPlayerUtils.ensureYoutubeiPoTokensForPlayback(
                                 videoId = request.mediaId,
                                 authState = request.authState,
                             )
                         } else {
                             request.authState
                         }
-                    return ytDlpRepository.resolve(
+                    return youtubeiRepository.resolve(
                         request = request.copy(authState = resolvedAuthState),
                         priority = priority,
                     )
@@ -291,18 +289,10 @@ class ResolveAudioStreamUseCase
                     throw loginRequired
                 } catch (invalidLogin: YTPlayerUtils.InvalidPlaybackLoginContextException) {
                     throw invalidLogin
-                } catch (ytDlpFailure: YtDlpExtractionException) {
-                    if (request.purpose == StreamPurpose.DOWNLOAD) throw ytDlpFailure
-                    Timber.tag(TAG).w(
-                        ytDlpFailure,
-                        "Fast yt-dlp resolution failed for %s; using native fallback",
-                        request.mediaId,
-                    )
-                    ytDlpFailure
                 } catch (throwable: Throwable) {
                     Timber.tag(TAG).w(
                         throwable,
-                        "Local yt-dlp resolution failed for %s; using native fallback",
+                        "youtubei.js resolution failed for %s; using native fallback",
                         request.mediaId,
                     )
                     throwable
@@ -313,7 +303,7 @@ class ResolveAudioStreamUseCase
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (nativeFailure: Throwable) {
-                nativeFailure.addSuppressed(ytDlpFailure)
+                nativeFailure.addSuppressed(youtubeiFailure)
                 throw nativeFailure
             }
         }
@@ -336,7 +326,6 @@ class ResolveAudioStreamUseCase
                 authFingerprint = authState.streamCacheFingerprint,
                 pinnedFormatId = pinnedFormatId,
                 requiresSongMetadata = requiresSongMetadata,
-                runtimeRevision = YtDlpRuntimeStore.revision,
             )
 
         private fun storeResolvedStream(
@@ -344,7 +333,7 @@ class ResolveAudioStreamUseCase
             resolved: ResolvedAudioStream,
         ) {
             putResolvedStream(key, resolved)
-            if (resolved.source == StreamSource.YT_DLP) {
+            if (resolved.source == StreamSource.YOUTUBEI) {
                 val alternatePurpose =
                     when (key.purpose) {
                         StreamPurpose.PLAYBACK -> StreamPurpose.DOWNLOAD

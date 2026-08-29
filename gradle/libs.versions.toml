@@ -45,10 +45,8 @@ androidsvg = "1.4"
 aboutLibraries = "15.0.3"
 leakCanary = "2.14"
 spotless = "8.10.0"
-chaquopy = "17.0.0"
 graphicsShapes = "1.0.1"
-quickjsKt = "1.0.10"
-bouncyCastle = "1.85"
+quickjsKt = "1.0.14"
 
 
 [libraries]
@@ -155,7 +153,6 @@ androidsvg = { module = "com.caverock:androidsvg-aar", version.ref = "androidsvg
 aboutlibraries-core = { module = "com.mikepenz:aboutlibraries-core", version.ref = "aboutLibraries" }
 leakcanary-android = { module = "com.squareup.leakcanary:leakcanary-android", version.ref = "leakCanary" }
 quickjs-kt = { module = "io.github.dokar3:quickjs-kt", version.ref = "quickjsKt" }
-bcpg = { module = "org.bouncycastle:bcpg-jdk18on", version.ref = "bouncyCastle" }
 
 
 
@@ -170,4 +167,3 @@ kotlin-ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 aboutlibraries-android = { id = "com.mikepenz.aboutlibraries.plugin.android", version.ref = "aboutLibraries" }
 spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }
-chaquopy = { id = "com.chaquo.python", version.ref = "chaquopy" }
