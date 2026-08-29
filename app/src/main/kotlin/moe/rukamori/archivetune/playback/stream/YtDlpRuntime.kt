@@ -32,6 +32,7 @@ class YtDlpRuntime
         @ApplicationContext private val context: Context,
     ) {
         private val resolutionPermits = Semaphore(2)
+        private val backgroundResolutionPermits = Semaphore(1)
         private val pythonModuleLock = Any()
 
         @Volatile
@@ -50,25 +51,27 @@ class YtDlpRuntime
         }
 
         suspend fun preWarm() {
-            resolutionPermits.withPermit {
-                withContext(Dispatchers.IO) {
-                    try {
-                        val activeArchive = YtDlpRuntimeStore.activeArchive(context)
-                        val module = getPythonModule()
-                        module.callAttr(
-                            "prewarm_runtime",
-                            activeArchive?.absolutePath.orEmpty(),
-                        )
-                        if (
-                            activeArchive != null &&
-                            !module.callAttr("is_runtime_archive_loaded").toBoolean()
-                        ) {
-                            YtDlpRuntimeStore.rollback(context)
+            backgroundResolutionPermits.withPermit {
+                resolutionPermits.withPermit {
+                    withContext(Dispatchers.IO) {
+                        try {
+                            val activeArchive = YtDlpRuntimeStore.activeArchive(context)
+                            val module = getPythonModule()
+                            module.callAttr(
+                                "prewarm_runtime",
+                                activeArchive?.absolutePath.orEmpty(),
+                            )
+                            if (
+                                activeArchive != null &&
+                                !module.callAttr("is_runtime_archive_loaded").toBoolean()
+                            ) {
+                                YtDlpRuntimeStore.rollback(context)
+                            }
+                        } catch (cancellation: CancellationException) {
+                            throw cancellation
+                        } catch (exception: Exception) {
+                            Timber.tag(TAG).w(exception, "yt-dlp runtime prewarm failed")
                         }
-                    } catch (cancellation: CancellationException) {
-                        throw cancellation
-                    } catch (exception: Exception) {
-                        Timber.tag(TAG).w(exception, "yt-dlp runtime prewarm failed")
                     }
                 }
             }
@@ -77,8 +80,36 @@ class YtDlpRuntime
         suspend fun resolve(
             request: AudioStreamRequest,
             authState: moe.rukamori.archivetune.innertube.PlaybackAuthState,
+        ): ResolvedAudioStream =
+            resolve(
+                request = request,
+                authState = authState,
+                priority =
+                    when (request.purpose) {
+                        StreamPurpose.PLAYBACK -> StreamResolutionPriority.FOREGROUND
+                        StreamPurpose.DOWNLOAD -> StreamResolutionPriority.BACKGROUND
+                    },
+            )
+
+        internal suspend fun resolve(
+            request: AudioStreamRequest,
+            authState: moe.rukamori.archivetune.innertube.PlaybackAuthState,
+            priority: StreamResolutionPriority,
         ): ResolvedAudioStream {
-            return resolutionPermits.withPermit {
+            return when (priority) {
+                StreamResolutionPriority.FOREGROUND -> resolveWithPermit(request, authState)
+                StreamResolutionPriority.BACKGROUND ->
+                    backgroundResolutionPermits.withPermit {
+                        resolveWithPermit(request, authState)
+                    }
+            }
+        }
+
+        private suspend fun resolveWithPermit(
+            request: AudioStreamRequest,
+            authState: moe.rukamori.archivetune.innertube.PlaybackAuthState,
+        ): ResolvedAudioStream =
+            resolutionPermits.withPermit {
                 withContext(Dispatchers.IO) {
                     val module = getPythonModule()
                     val activeArchive = YtDlpRuntimeStore.activeArchive(context)
@@ -89,6 +120,13 @@ class YtDlpRuntime
                             .put("network_metered", request.networkMetered)
                             .put("pinned_format_id", request.pinnedFormatId)
                             .put("requires_song_metadata", request.requiresSongMetadata)
+                            .put(
+                                "extraction_mode",
+                                when (request.purpose) {
+                                    StreamPurpose.PLAYBACK -> FAST_ONLY_EXTRACTION_MODE
+                                    StreamPurpose.DOWNLOAD -> FAST_WITH_FALLBACK_EXTRACTION_MODE
+                                },
+                            )
                             .put("cookie", authState.cookie)
                             .put("data_sync_id", authState.dataSyncId)
                             .put(
@@ -130,7 +168,6 @@ class YtDlpRuntime
                     )
                 }
             }
-        }
 
         private fun getPythonModule(): PyObject {
             pythonModule?.let { return it }
@@ -205,9 +242,16 @@ class YtDlpRuntime
             const val STALE_COOKIE_FILE_MS = 60L * 60L * 1000L
             const val DEFAULT_STREAM_LIFETIME_MS = 5L * 60L * 1000L
             const val CONTROL_CHARACTERS = "\r\n"
+            const val FAST_ONLY_EXTRACTION_MODE = "fast_only"
+            const val FAST_WITH_FALLBACK_EXTRACTION_MODE = "fast_with_fallback"
             val HTTP_SCHEMES = setOf("http", "https")
         }
     }
+
+internal enum class StreamResolutionPriority {
+    FOREGROUND,
+    BACKGROUND,
+}
 
 internal class YtDlpExtractionException(
     cause: Throwable,
