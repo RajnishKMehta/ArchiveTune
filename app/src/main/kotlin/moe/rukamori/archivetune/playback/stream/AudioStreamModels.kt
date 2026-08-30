@@ -17,7 +17,6 @@ enum class StreamPurpose {
 
 enum class StreamSource {
     YOUTUBEI,
-    NATIVE_INNERTUBE,
 }
 
 data class AudioStreamRequest(

@@ -34,7 +34,6 @@ class ResolveAudioStreamUseCase
     @Inject
     constructor(
         private val youtubeiRepository: YoutubeiStreamRepository,
-        private val nativeRepository: NativeStreamRepository,
     ) {
         private data class CacheKey(
             val mediaId: String,
@@ -268,44 +267,19 @@ class ResolveAudioStreamUseCase
             request: AudioStreamRequest,
             priority: StreamResolutionPriority,
         ): ResolvedAudioStream {
-            val youtubeiFailure =
-                try {
-                    val resolvedAuthState =
-                        if (request.authState.hasLoginCookie) {
-                            YTPlayerUtils.ensureYoutubeiPoTokensForPlayback(
-                                videoId = request.mediaId,
-                                authState = request.authState,
-                            )
-                        } else {
-                            request.authState
-                        }
-                    return youtubeiRepository.resolve(
-                        request = request.copy(authState = resolvedAuthState),
-                        priority = priority,
+            val resolvedAuthState =
+                if (request.authState.hasLoginCookie) {
+                    YTPlayerUtils.ensureYoutubeiPoTokensForPlayback(
+                        videoId = request.mediaId,
+                        authState = request.authState,
                     )
-                } catch (cancellation: CancellationException) {
-                    throw cancellation
-                } catch (loginRequired: YTPlayerUtils.LoginRequiredForPlaybackException) {
-                    throw loginRequired
-                } catch (invalidLogin: YTPlayerUtils.InvalidPlaybackLoginContextException) {
-                    throw invalidLogin
-                } catch (throwable: Throwable) {
-                    Timber.tag(TAG).w(
-                        throwable,
-                        "youtubei.js resolution failed for %s; using native fallback",
-                        request.mediaId,
-                    )
-                    throwable
+                } else {
+                    request.authState
                 }
-
-            return try {
-                nativeRepository.resolve(request)
-            } catch (cancellation: CancellationException) {
-                throw cancellation
-            } catch (nativeFailure: Throwable) {
-                nativeFailure.addSuppressed(youtubeiFailure)
-                throw nativeFailure
-            }
+            return youtubeiRepository.resolve(
+                request = request.copy(authState = resolvedAuthState),
+                priority = priority,
+            )
         }
 
         private fun AudioStreamRequest.resolutionPriority(
