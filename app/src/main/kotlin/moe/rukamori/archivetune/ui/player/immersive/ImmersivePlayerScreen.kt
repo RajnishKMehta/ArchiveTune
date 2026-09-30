@@ -88,6 +88,7 @@ import moe.rukamori.archivetune.utils.makeTimeString
 
 private val ImmersiveContentColor = Color.White
 private val ImmersiveSecondaryContentColor = Color.White.copy(alpha = 0.7f)
+private const val ImmersiveBackdropBlurRotationDegrees = -90f
 
 @Composable
 fun ImmersivePlayerScreen(
@@ -424,35 +425,43 @@ private fun ImmersiveBackdrop(
                     .fillMaxSize()
                     .hazeSource(hazeState),
         ) {
-            if (canvasFrame != null && canvas != null) {
-                Image(
-                    bitmap = canvasFrame,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            } else {
-                AsyncImage(
-                    model = artworkRequest,
-                    placeholder = artworkPlaceholder,
-                    error = artworkPlaceholder,
-                    fallback = artworkPlaceholder,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
-                AsyncImage(
-                    model = artworkRequest,
-                    placeholder = artworkPlaceholder,
-                    error = artworkPlaceholder,
-                    fallback = artworkPlaceholder,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier =
-                        Modifier
-                            .size(width = artWidth, height = artHeight)
-                            .align(Alignment.TopStart),
-                )
+            Box(
+                modifier =
+                    Modifier
+                        .size(width = maxHeight, height = maxWidth)
+                        .align(Alignment.Center)
+                        .graphicsLayer { rotationZ = ImmersiveBackdropBlurRotationDegrees },
+            ) {
+                if (canvasFrame != null && canvas != null) {
+                    Image(
+                        bitmap = canvasFrame,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                } else {
+                    AsyncImage(
+                        model = artworkRequest,
+                        placeholder = artworkPlaceholder,
+                        error = artworkPlaceholder,
+                        fallback = artworkPlaceholder,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    AsyncImage(
+                        model = artworkRequest,
+                        placeholder = artworkPlaceholder,
+                        error = artworkPlaceholder,
+                        fallback = artworkPlaceholder,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier =
+                            Modifier
+                                .size(width = artWidth, height = artHeight)
+                                .align(Alignment.TopStart),
+                    )
+                }
             }
         }
 
