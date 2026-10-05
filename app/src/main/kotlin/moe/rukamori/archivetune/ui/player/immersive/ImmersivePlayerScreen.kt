@@ -407,6 +407,8 @@ private fun ImmersiveBackdrop(
         }
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val rotatedBackdropWidth = maxHeight
+        val rotatedBackdropHeight = maxWidth
         val stageFadeMask =
             remember {
                 Brush.verticalGradient(
@@ -428,7 +430,7 @@ private fun ImmersiveBackdrop(
             Box(
                 modifier =
                     Modifier
-                        .size(width = maxHeight, height = maxWidth)
+                        .size(width = rotatedBackdropWidth, height = rotatedBackdropHeight)
                         .align(Alignment.Center)
                         .graphicsLayer { rotationZ = ImmersiveBackdropBlurRotationDegrees },
             ) {
